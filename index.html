@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1950년대 후반 한국경제사의 흐름</title>
+    
+    <!-- Fonts: Noto Sans KR & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase Configuration
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- 초기 역사적 기록 (Static Data) ---
+        const initialHistoricalData = [
+            {
+                id: 'static-1',
+                date: '1956. 07',
+                title: '주한미대사와 경제조정관 교체',
+                summary: '다울링과 원의 부임 및 경제개발계획 추진의 공감대 형성',
+                content: `<p>1956년 7월, 주한미대사와 경제조정관이 각각 다울링(Dowling)과 원(Warne)으로 교체되었습니다. 이들은 한국 경제 상황에 대해 긍정적인 인식을 가지고 있었으며, 체계적인 경제개발계획의 필요성을 강력하게 주장하였습니다.</p><p>또한 미국무부 동북아시아 일본무역계장을 지낸 크롱크(Cronk)가 주한미대사관 경제참사로 임명되며 한미 간의 경제 협력 기반이 강화되었습니다.</p><p>미국은 한국 정부 내 경제 전문가들의 활동을 적극적으로 지원하고 한미 간의 우호적인 관계를 조성하고자 하였으며, 이는 1950년대 후반 실무자를 중심으로 한 경제개발계획 수립을 위한 양국의 공감대 형성에 결정적인 역할을 하였습니다.</p>`,
+                footnote: "크롱크는 한국에 부임한 이후 미대사관의 관료들과 한국 정부 내 경제 전문가들로 구성되는 세미나를 조직하였으며, 정기적인 세미나를 통해 한국인들의 경제에 대한 이해를 증진시키고자 노력하였습니다.",
+                source: "한국일보사, '재계회고' 8권, 1981, 87~88쪽.\n이한빈, '일하며 생각하며-이한빈 회고록', 1996, 조선일보사, 106~107쪽.\n도널드 스턴 맥도날드, '한미관계 20년사-해방에서 자립까지', 한국역사연구회, 2001, 420쪽."
+            },
+            {
+                id: 'static-2',
+                date: '1957. 01',
+                title: '재정안정계획의 실시',
+                summary: '합동경제위원회 주도 하의 수지 균형 달성 및 반인플레 정책',
+                content: `<p>합동경제위원회에서는 세입의 증가를 통한 수지 균형 달성, 경쟁 입찰을 통한 원조물자 판매대금의 효과적인 회수, 새로운 사업 계획에 필요한 자금을 조달하기 위한 주식 공매 및 사채 발행 등의 방법을 통한 국유재산과 귀속재산의 불하 독려 등을 추진했습니다.</p><p>또한 인플레 경향을 초래하지 않는 한도 내에서 대충자금계정의 신규 방출을 승인하는 등의 재정 안정화 조치를 취했습니다.</p><p>그 결과 1957년 이후 물가상승 경향이 현저히 감소했고, 이는 향후 경제개발계획을 추진할 수 있는 효과적인 토양으로 인식되었습니다.</p>`,
+                footnote: "\"투자계획의 추진을 위해서도 반인플레정책을 통한 재정안정이 우선시되어야 한다\"는 원칙을 한국 정부가 적극 수용하였습니다.",
+                source: "Intelligence Report No.7563, 'Recent Developments in South Korean Stabilization', 국사편찬위원회, 『미국무부 정보조사국(OIR) 한국 관련 보고서 5』, 247~259쪽.\n대한민국 부흥부, 1958, 「1958년 3월 5일 제97차 합경위 본회의」 『부흥월보』 제3권, 1958년 4월, 74쪽."
+            },
+            {
+                id: 'static-3',
+                date: '1957. 05',
+                title: '기술위원회(CEBEC) 신설',
+                summary: '원조프로그램의 행정 및 정책 개발을 위한 기술적 측면 강화',
+                content: `<p>통신, 산업, 광업, 전력, 공공행정, 농업, 수송 등 원조프로그램의 각 부문 행정과 정책 개발을 위한 기술적인 측면을 책임지는 기술위원회(Engineering Committee: CEBEC)가 신설되었습니다.</p><p>이 위원회는 원조프로그램의 투자 부문 개발과 관련된 권고안을 작성하고, 한국 정부와 국제협조처(ICA) 및 민간 회사들 사이에 체결된 경영 기술 계약을 관리하는 역할을 담당했습니다.</p>`,
+                source: "'CEB-P-56-196 (Revised)-Finalized June 19, 1957, Charter Engineering Committee, May 31, 1957, CEB Basic Documents. RG 469, Mission to Korea Program Coordination Office Combined Economic Board Secretariat, Box 1."
+            },
+            {
+                id: 'static-4',
+                date: '1957. 06',
+                title: '부흥부 장관에 송인상 임명',
+                summary: '유능한 경제 관료 및 전문가 대거 등용을 통한 내각 개편',
+                content: `<p>1956년 선거 이후 이승만 대통령은 경제에 대한 민심을 고려하여 내각을 개편하고 유능한 경제 전문가들을 영입했습니다.</p><p>이 시기 부흥부와 재무부에는 미국 연수 경험자나 한국은행 출신의 전문가들이 대거 등용되어 정책의 전문성이 크게 제고되었습니다.</p>`,
+                source: "박태균, '1956년~1964년 한국 경제개발계획의 성립과정', 2000, 서울대 국사학과 박사학위논문, 88쪽."
+            },
+            {
+                id: 'static-5',
+                date: '1957. 11',
+                title: '지역사회개발위원회 설치',
+                summary: '농촌 근대화를 통한 체제 안정 및 자조 활동 독려',
+                content: `<p>각 부락 사회개발계획의 실시와 정책 실행을 위한 정보를 제공하기 위해 설치되었습니다. 농촌개량에 대한 한미 간 협조 방식을 검토하고 자조 활동에 관한 정보 모집 및 훈련을 담당했습니다.</p><p>미국은 이를 통해 미국식 생활 양식과 가치관을 이식하고, 냉전 체제 하에서 농촌의 근대화를 통한 체제 안정을 달성하고자 했습니다.</p>`,
+                footnote: "미국의 대외원조정책이 원조 삭감 및 저개발국의 자조 정신 고취 방향으로 변화함에 따라 고안되었습니다. 미국은 이를 반공을 위한 최선의 무기로 간주했습니다.",
+                source: "대한민국 부흥부, 1957. 1957년 11월 27일 합경위 제84차 본회의, 『부흥월보』 2권 9호.\nDowling to DOS, Embdes 128, \"Broad Evaluation of U.S. Program in Korea. Oct. 25, 1956.\n허은, 2004. 「미국의 대한 문화 활동과 한국사회의 반응」 고려대 사학과 박사학위논문, 171쪽."
+            },
+            {
+                id: 'static-6',
+                date: '1957. 12',
+                title: '합동경제위원회 구호위원회 해체',
+                summary: '구호 단계 종료 및 기획·재무 중심의 개발 지원 체제로 이관',
+                content: `<p>전후 긴급 구호 위원회의 기능이 사실상 완료됨에 따라 구호위원회를 해체하고 남은 업무를 기획위원회와 재무위원회로 인수했습니다.</p>`,
+                footnote: "이는 미국의 원조 정책이 '집중적 구호'에서 '개발 및 경제 지원'으로 중심축이 이동했음을 보여주는 사례입니다.",
+                source: "대한민국 부흥부, 1958, 「1957년 12월 18일 합경위 제87차 본회의」, 『부흥월보』 3권 1호, 1958년 1월, 107쪽."
+            },
+            {
+                id: 'static-7',
+                date: '1958. 01',
+                title: '산업개발위원회 설치',
+                summary: '전문적 행정 인력 양성 및 경제 개발을 위한 행정 기구 지원',
+                content: `<p>1958년에 설치된 산업개발위원회를 중심으로 경제 행정 기구에 대한 지원이 집중되었습니다. 이는 전문적인 행정 인력의 양성을 경제 개발의 필수 조건으로 중시했던 미국의 정책적 판단이 반영된 결과입니다.</p>`,
+                footnote: "이는 1956년 중반 이후 등용된 전문적인 경제 관료들의 실무적 인식을 강하게 반영하고 있습니다.",
+                source: "대한민국 부흥부, 1958."
+            },
+            {
+                id: 'static-8',
+                date: '1958. 06',
+                title: '합경위 내 개발계획 논의 본격화',
+                summary: '3개년 경제개발계획안 완성을 위한 부서 간 협조 및 연구 지시',
+                content: `<p>합동경제위원회는 개발계획을 위한 제반 문제들을 검토할 것을 결의하고 각 상임위원회에 연구를 지시했습니다.</p><p>연구 조사 과제를 산업개발위원회에 제출하여 건의안을 작성할 수 있도록 협조를 지시하였으며, 이러한 의견 교환 과정을 거쳐 1950년대 후반의 3개년 경제개발계획안이 완성되었습니다.</p>`,
+                source: "「1958년 6월 25일 제111차 합경위 본회의」 『부흥월보』 3권 8호, 1958년 8월, 66쪽."
+            },
+            {
+                id: 'static-9',
+                date: '1958 ~',
+                title: '기술원조계획 수립',
+                summary: '장기적 개발계획과 기술 훈련을 위한 전반적인 원조 체계 수립',
+                content: `<p>1950년대 전반과 달리 이 시기부터는 장기적인 개발계획에 대한 논의가 큰 비중을 차지하게 되었습니다.</p><p>충주 비료공장 기술자 훈련계획을 비롯하여 해외 민간자본 유치, 한국 기술자들의 해외 파견, 공공행정 분야에 대한 지원 등 전반적인 기술 원조 계획이 수립되었습니다.</p>`,
+                source: "‘1958년도 기술원조시설부문운영계획,합경위안58-165’,‘1958년도 기술원조계획 진척 상황 보고,합경위안-58-168’,「1958년 4월 23일 제102차 합경위 본회의」,『부흥월보』3권 6호,1958년 6월호,80～84쪽."
+            }
+        ];
+
+        // Global State
+        window.timelineData = [...initialHistoricalData];
+        window.db = db;
+        window.appId = appId;
+
+        // Auth Initialization
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) { console.error("Auth Error:", error); }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+                onSnapshot(eventsCol, (snapshot) => {
+                    const cloudData = [];
+                    snapshot.forEach(doc => {
+                        cloudData.push({ id: doc.id, ...doc.data() });
+                    });
+                    // 합치기: 기본 기록 + 클라우드 기록
+                    window.timelineData = [...initialHistoricalData, ...cloudData];
+                    if (window.currentView === 'timeline') {
+                        window.renderTimeline();
+                    }
+                });
+            }
+        });
+
+        initAuth();
+
+        window.addNewEventToDB = async (newEvent) => {
+            if (!auth.currentUser) return;
+            const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+            await addDoc(eventsCol, newEvent);
+        };
+    </script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['"Inter"', '"Noto Sans KR"', 'sans-serif'] },
+                    colors: {
+                        slate: { 50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a' },
+                        accent: { light: '#e0e7ff', DEFAULT: '#6366f1', dark: '#4338ca' }
+                    },
+                    boxShadow: { 'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)', 'card': '0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025)' }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .timeline-line::before { content: ''; position: absolute; left: 19px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; z-index: 0; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased h-screen flex overflow-hidden">
+
+    <!-- Sidebar Navigation -->
+    <nav class="w-64 bg-white border-r border-slate-200 flex-shrink-0 flex flex-col justify-between h-full shadow-soft z-20">
+        <div>
+            <div class="p-8 pb-4">
+                <div class="flex items-center gap-3 text-slate-700 mb-1">
+                    <i data-lucide="book-open" class="w-8 h-8 text-accent"></i>
+                    <span class="font-bold text-lg tracking-tight leading-tight">1950년대 후반<br>한국경제사의 흐름</span>
+                </div>
+                <p class="text-[10px] text-slate-400 font-bold pl-1 mt-2 tracking-widest uppercase">Database Connected</p>
+            </div>
+            
+            <ul class="flex flex-col px-4 gap-2 mt-4">
+                <li>
+                    <button onclick="navigateTo('timeline')" id="nav-timeline" class="nav-item w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl text-slate-500 hover:bg-slate-50 hover:text-accent transition-all duration-200 group">
+                        <i data-lucide="clock" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
+                        연표 (Timeline)
+                    </button>
+                </li>
+                <li>
+                    <button onclick="navigateTo('add-event')" id="nav-add-event" class="nav-item w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl text-slate-500 hover:bg-slate-50 hover:text-accent transition-all duration-200 group">
+                        <i data-lucide="plus-square" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
+                        사건 추가 (Add)
+                    </button>
+                </li>
+            </ul>
+        </div>
+        
+        <div class="p-6 border-t border-slate-100">
+             <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                    <i data-lucide="user" class="w-4 h-4"></i>
+                </div>
+                <div class="text-[11px]">
+                    <p class="font-bold text-slate-700">관리자 모드</p>
+                    <p class="text-slate-400">편집 권한 활성화됨</p>
+                </div>
+             </div>
+        </div>
+    </nav>
+
+    <main class="flex-1 h-full overflow-y-auto bg-slate-50 relative p-8 lg:p-12" id="main-container"></main>
+
+    <!-- Template: Timeline View -->
+    <template id="view-timeline">
+        <div class="max-w-4xl mx-auto fade-in">
+            <header class="mb-12 text-center">
+                <span class="px-3 py-1 rounded-full bg-accent-light text-accent text-[10px] font-bold tracking-widest uppercase mb-3 inline-block">Historical Archive</span>
+                <h2 class="text-3xl font-bold text-slate-800">1956-1958 주요 경제 사건 연표</h2>
+                <p class="text-slate-500 mt-2 text-sm">기록된 사건을 클릭하면 상세한 역사적 배경을 확인할 수 있습니다.</p>
+            </header>
+
+            <div class="relative timeline-line pl-4 space-y-8" id="timeline-list-container">
+                <!-- Timeline items injected via JS -->
+            </div>
+        </div>
+    </template>
+
+    <!-- Template: Add Event View -->
+    <template id="view-add-event">
+        <div class="max-w-4xl mx-auto fade-in">
+            <header class="mb-10 text-center">
+                <h2 class="text-3xl font-bold text-slate-800">새로운 역사적 기록 등록</h2>
+                <p class="text-slate-500 mt-2 text-sm">입력하신 정보는 클라우드 데이터베이스에 즉시 영구 저장됩니다.</p>
+            </header>
+
+            <div class="bg-white p-8 lg:p-10 rounded-3xl border border-slate-200 shadow-soft">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">시간 (Date)</label>
+                        <input type="text" id="input-date" placeholder="예: 1958. 06" class="w-full px-5 py-4 rounded-2xl border border-slate-100 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-accent/10 outline-none transition-all text-sm">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">사건명 (Event Title)</label>
+                        <input type="text" id="input-title" placeholder="사건의 핵심 제목" class="w-full px-5 py-4 rounded-2xl border border-slate-100 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-accent/10 outline-none transition-all text-sm">
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">한 줄 요약 (Summary)</label>
+                        <input type="text" id="input-summary" placeholder="목록에서 보여질 짧은 설명" class="w-full px-5 py-4 rounded-2xl border border-slate-100 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-accent/10 outline-none transition-all text-sm">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">상세내용 (Detailed Content)</label>
+                        <textarea id="input-content" rows="6" placeholder="사건의 구체적인 내용 (HTML 태그 사용 가능)" class="w-full px-5 py-4 rounded-2xl border border-slate-100 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-accent/10 outline-none transition-all text-sm resize-none"></textarea>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">각주 (Footnote)</label>
+                            <input type="text" id="input-footnote" placeholder="추가 설명 (선택 사항)" class="w-full px-5 py-4 rounded-2xl border border-slate-100 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-accent/10 outline-none transition-all text-sm">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">출처 (Source)</label>
+                            <input type="text" id="input-source" placeholder="참고 문헌 정보" class="w-full px-5 py-4 rounded-2xl border border-slate-100 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-accent/10 outline-none transition-all text-sm">
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="handleFormSubmit()" id="submit-btn" class="w-full mt-10 bg-accent hover:bg-accent-dark text-white font-bold py-5 rounded-2xl shadow-xl shadow-accent/20 transition-all flex items-center justify-center gap-3 group disabled:opacity-50">
+                    <i data-lucide="save" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
+                    데이터베이스에 영구 저장하기
+                </button>
+            </div>
+        </div>
+    </template>
+
+    <!-- Template: Detail View -->
+    <template id="view-detail">
+        <div class="max-w-3xl mx-auto fade-in">
+            <button onclick="navigateTo('timeline')" class="mb-6 flex items-center text-sm text-slate-500 hover:text-accent transition-colors group">
+                <i data-lucide="arrow-left" class="w-4 h-4 mr-1 group-hover:-translate-x-1 transition-transform"></i>
+                연표 목록으로 돌아가기
+            </button>
+            <div class="bg-white rounded-3xl shadow-card border border-slate-100 overflow-hidden">
+                <div class="p-8 lg:p-12">
+                    <div class="flex items-center gap-3 mb-8">
+                        <span id="detail-date" class="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold font-mono"></span>
+                        <span id="detail-tag" class="text-[10px] font-black text-accent uppercase tracking-[0.2em]">Archived Event</span>
+                    </div>
+                    <h2 id="detail-title" class="text-3xl lg:text-4xl font-bold text-slate-800 mb-10 leading-tight"></h2>
+                    <div id="detail-content" class="prose prose-slate max-w-none text-slate-600 leading-relaxed space-y-6 text-lg"></div>
+                    
+                    <div id="detail-footnote-container" class="mt-10 hidden">
+                         <div class="p-6 bg-slate-50 rounded-2xl border-l-4 border-slate-300 shadow-sm">
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                                <i data-lucide="info" class="w-3 h-3 text-slate-400"></i> Footnote
+                            </p>
+                            <p id="detail-footnote" class="text-sm text-slate-500 leading-relaxed"></p>
+                         </div>
+                    </div>
+
+                    <div class="mt-12 pt-10 border-t border-slate-100">
+                        <div class="flex items-start gap-4 bg-slate-50/50 p-6 rounded-2xl border border-slate-100">
+                            <i data-lucide="book-marked" class="w-5 h-5 text-slate-300 mt-1"></i>
+                            <div>
+                                <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Source Information</h4>
+                                <div id="detail-source" class="text-sm text-slate-500 leading-relaxed italic whitespace-pre-line"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        window.currentView = 'timeline';
+
+        function navigateTo(viewId) {
+            window.currentView = viewId;
+            
+            // UI: Sidebar active state update
+            document.querySelectorAll('.nav-item').forEach(el => {
+                el.classList.remove('bg-slate-50', 'text-accent', 'shadow-sm');
+                el.classList.add('text-slate-500');
+            });
+            const activeBtn = document.getElementById(`nav-${viewId}`);
+            if(activeBtn) {
+                activeBtn.classList.add('bg-slate-50', 'text-accent', 'shadow-sm');
+                activeBtn.classList.remove('text-slate-500');
+            }
+
+            // View change
+            const template = document.getElementById(`view-${viewId}`);
+            if (template) {
+                document.getElementById('main-container').innerHTML = template.innerHTML;
+                lucide.createIcons();
+                if (viewId === 'timeline') renderTimeline();
+            }
+        }
+
+        window.renderTimeline = () => {
+            const listContainer = document.getElementById('timeline-list-container');
+            if (!listContainer) return;
+            listContainer.innerHTML = '';
+            
+            const sortedData = [...(window.timelineData || [])].sort((a, b) => {
+                const dateA = a.date.replace(/[^0-9]/g, '').padEnd(8, '0');
+                const dateB = b.date.replace(/[^0-9]/g, '').padEnd(8, '0');
+                return dateA.localeCompare(dateB);
+            });
+
+            sortedData.forEach(item => {
+                const div = document.createElement('div');
+                div.className = "relative flex items-start gap-6 group cursor-pointer";
+                div.onclick = () => showDetail(item.id);
+                div.innerHTML = `
+                    <div class="z-10 w-10 h-10 rounded-full border-4 border-slate-50 bg-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 group-hover:border-accent transition-all duration-300">
+                        <div class="w-2.5 h-2.5 rounded-full bg-slate-300 group-hover:bg-accent transition-colors"></div>
+                    </div>
+                    <div class="flex-1 bg-white p-6 lg:p-7 rounded-3xl shadow-card border border-slate-100 group-hover:-translate-y-1.5 transition-all duration-300 text-left">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-xs font-black text-accent font-mono tracking-tighter bg-accent/5 px-2 py-0.5 rounded">${item.date}</span>
+                            <i data-lucide="arrow-right-circle" class="w-5 h-5 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300 text-accent"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800 mb-2 group-hover:text-accent transition-colors">${item.title}</h3>
+                        <p class="text-sm text-slate-500 line-clamp-2 leading-relaxed">${item.summary}</p>
+                    </div>`;
+                listContainer.appendChild(div);
+            });
+            lucide.createIcons();
+        };
+
+        function showDetail(id) {
+            const item = window.timelineData.find(d => d.id === id);
+            if (!item) return;
+            
+            window.currentView = 'detail';
+            const template = document.getElementById('view-detail');
+            document.getElementById('main-container').innerHTML = template.innerHTML;
+            
+            document.getElementById('detail-date').textContent = item.date;
+            document.getElementById('detail-title').textContent = item.title;
+            document.getElementById('detail-content').innerHTML = item.content;
+            document.getElementById('detail-source').textContent = item.source;
+            
+            if (item.footnote) {
+                document.getElementById('detail-footnote-container').classList.remove('hidden');
+                document.getElementById('detail-footnote').textContent = item.footnote;
+            }
+            
+            lucide.createIcons();
+            document.getElementById('main-container').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        window.handleFormSubmit = async () => {
+            const btn = document.getElementById('submit-btn');
+            const date = document.getElementById('input-date').value.trim();
+            const title = document.getElementById('input-title').value.trim();
+            const summary = document.getElementById('input-summary').value.trim();
+            const content = document.getElementById('input-content').value.trim();
+            const footnote = document.getElementById('input-footnote').value.trim();
+            const source = document.getElementById('input-source').value.trim();
+
+            if (!date || !title) {
+                alert("시간과 사건명은 필수입니다.");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span> 전송 중...';
+
+            const newEvent = { 
+                date, 
+                title, 
+                summary: summary || "상세 정보가 등록되지 않았습니다.", 
+                content: content.replace(/\n/g, "<br>"), 
+                footnote: footnote || "", 
+                source: source || "출처 정보 없음", 
+                createdAt: new Date().toISOString() 
+            };
+
+            try {
+                await window.addNewEventToDB(newEvent);
+                alert("성공적으로 저장되었습니다.");
+                navigateTo('timeline'); // 저장 후 연표로 이동
+            } catch (e) { 
+                console.error(e);
+                alert("저장 실패: " + e.message);
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="save" class="w-5 h-5 mr-2"></i> 데이터베이스에 영구 저장하기';
+                lucide.createIcons();
+            }
+        };
+
+        window.onload = () => navigateTo('timeline');
+    </script>
+</body>
+</html>
