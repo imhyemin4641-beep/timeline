@@ -16,19 +16,8 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Firebase Configuration
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
+    <!-- 1. Core Data and Navigation Script (Available Immediately) -->
+    <script>
         // --- 초기 역사적 기록 (Static Data) ---
         const initialHistoricalData = [
             {
@@ -110,49 +99,9 @@
             }
         ];
 
-        // Global State
         window.timelineData = [...initialHistoricalData];
-        window.db = db;
-        window.appId = appId;
+        window.currentView = 'timeline';
 
-        // Auth Initialization
-        const initAuth = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (error) { console.error("Auth Error:", error); }
-        };
-
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
-                onSnapshot(eventsCol, (snapshot) => {
-                    const cloudData = [];
-                    snapshot.forEach(doc => {
-                        cloudData.push({ id: doc.id, ...doc.data() });
-                    });
-                    // 합치기: 기본 기록 + 클라우드 기록
-                    window.timelineData = [...initialHistoricalData, ...cloudData];
-                    if (window.currentView === 'timeline') {
-                        window.renderTimeline();
-                    }
-                });
-            }
-        });
-
-        initAuth();
-
-        window.addNewEventToDB = async (newEvent) => {
-            if (!auth.currentUser) return;
-            const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
-            await addDoc(eventsCol, newEvent);
-        };
-    </script>
-
-    <script>
         tailwind.config = {
             theme: {
                 extend: {
@@ -164,6 +113,135 @@
                     boxShadow: { 'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)', 'card': '0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025)' }
                 }
             }
+        };
+
+        function navigateTo(viewId) {
+            window.currentView = viewId;
+            document.querySelectorAll('.nav-item').forEach(el => {
+                el.classList.remove('bg-slate-50', 'text-accent', 'shadow-sm');
+                el.classList.add('text-slate-500');
+            });
+            const activeBtn = document.getElementById(`nav-${viewId}`);
+            if(activeBtn) {
+                activeBtn.classList.add('bg-slate-50', 'text-accent', 'shadow-sm');
+                activeBtn.classList.remove('text-slate-500');
+            }
+
+            const template = document.getElementById(`view-${viewId}`);
+            if (template) {
+                document.getElementById('main-container').innerHTML = template.innerHTML;
+                lucide.createIcons();
+                if (viewId === 'timeline') renderTimeline();
+            }
+        }
+
+        function renderTimeline() {
+            const listContainer = document.getElementById('timeline-list-container');
+            if (!listContainer) return;
+            listContainer.innerHTML = '';
+            
+            const sortedData = [...(window.timelineData || [])].sort((a, b) => {
+                const dateA = a.date.replace(/[^0-9]/g, '').padEnd(8, '0');
+                const dateB = b.date.replace(/[^0-9]/g, '').padEnd(8, '0');
+                return dateA.localeCompare(dateB);
+            });
+
+            sortedData.forEach(item => {
+                const div = document.createElement('div');
+                div.className = "relative flex items-start gap-6 group cursor-pointer";
+                div.onclick = () => showDetail(item.id);
+                div.innerHTML = `
+                    <div class="z-10 w-10 h-10 rounded-full border-4 border-slate-50 bg-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 group-hover:border-accent transition-all duration-300">
+                        <div class="w-2.5 h-2.5 rounded-full bg-slate-300 group-hover:bg-accent transition-colors"></div>
+                    </div>
+                    <div class="flex-1 bg-white p-6 lg:p-7 rounded-3xl shadow-card border border-slate-100 group-hover:-translate-y-1.5 transition-all duration-300 text-left">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-xs font-black text-accent font-mono tracking-tighter bg-accent/5 px-2 py-0.5 rounded">${item.date}</span>
+                            <i data-lucide="arrow-right-circle" class="w-5 h-5 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300 text-accent"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800 mb-2 group-hover:text-accent transition-colors">${item.title}</h3>
+                        <p class="text-sm text-slate-500 line-clamp-2 leading-relaxed">${item.summary}</p>
+                    </div>`;
+                listContainer.appendChild(div);
+            });
+            lucide.createIcons();
+        }
+
+        function showDetail(id) {
+            const item = window.timelineData.find(d => d.id === id);
+            if (!item) return;
+            
+            window.currentView = 'detail';
+            const template = document.getElementById('view-detail');
+            document.getElementById('main-container').innerHTML = template.innerHTML;
+            
+            document.getElementById('detail-date').textContent = item.date;
+            document.getElementById('detail-title').textContent = item.title;
+            document.getElementById('detail-content').innerHTML = item.content;
+            document.getElementById('detail-source').textContent = item.source;
+            
+            if (item.footnote) {
+                document.getElementById('detail-footnote-container').classList.remove('hidden');
+                document.getElementById('detail-footnote').textContent = item.footnote;
+            }
+            
+            lucide.createIcons();
+            document.getElementById('main-container').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+
+    <!-- 2. Firebase Integration Script (Module) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+                window.addNewEventToDB = async (newEvent) => {
+                    if (!auth.currentUser) return;
+                    const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+                    await addDoc(eventsCol, newEvent);
+                };
+
+                const initAuth = async () => {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                };
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+                        onSnapshot(eventsCol, (snapshot) => {
+                            const cloudData = [];
+                            snapshot.forEach(doc => {
+                                cloudData.push({ id: doc.id, ...doc.data() });
+                            });
+                            // Merge and refresh
+                            window.timelineData = [...initialHistoricalData, ...cloudData];
+                            if (window.currentView === 'timeline') renderTimeline();
+                        });
+                        document.getElementById('conn-status').textContent = 'Connected';
+                        document.getElementById('conn-status-dot').classList.replace('bg-slate-300', 'bg-green-500');
+                    }
+                });
+
+                initAuth();
+            } else {
+                console.warn("Firebase config not found. Running in Offline mode.");
+                document.getElementById('conn-status').textContent = 'Offline Mode';
+            }
+        } catch (e) {
+            console.error("Firebase Init Error:", e);
         }
     </script>
 
@@ -187,7 +265,7 @@
                     <i data-lucide="book-open" class="w-8 h-8 text-accent"></i>
                     <span class="font-bold text-lg tracking-tight leading-tight">1950년대 후반<br>한국경제사의 흐름</span>
                 </div>
-                <p class="text-[10px] text-slate-400 font-bold pl-1 mt-2 tracking-widest uppercase">Database Connected</p>
+                <p class="text-[10px] text-slate-400 font-bold pl-1 mt-2 tracking-widest uppercase">Archive System</p>
             </div>
             
             <ul class="flex flex-col px-4 gap-2 mt-4">
@@ -207,13 +285,19 @@
         </div>
         
         <div class="p-6 border-t border-slate-100">
-             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                    <i data-lucide="user" class="w-4 h-4"></i>
+             <div class="flex flex-col gap-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                        <i data-lucide="user" class="w-4 h-4"></i>
+                    </div>
+                    <div class="text-[11px]">
+                        <p class="font-bold text-slate-700">관리자 모드</p>
+                        <p class="text-slate-400">편집 권한 활성화됨</p>
+                    </div>
                 </div>
-                <div class="text-[11px]">
-                    <p class="font-bold text-slate-700">관리자 모드</p>
-                    <p class="text-slate-400">편집 권한 활성화됨</p>
+                <div class="inline-flex items-center gap-2 px-3 py-1 bg-slate-50 text-slate-500 rounded-full text-[9px] font-bold uppercase tracking-widest border border-slate-100">
+                    <span id="conn-status-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                    <span id="conn-status">Initializing...</span>
                 </div>
              </div>
         </div>
@@ -325,85 +409,6 @@
     </template>
 
     <script>
-        window.currentView = 'timeline';
-
-        function navigateTo(viewId) {
-            window.currentView = viewId;
-            
-            // UI: Sidebar active state update
-            document.querySelectorAll('.nav-item').forEach(el => {
-                el.classList.remove('bg-slate-50', 'text-accent', 'shadow-sm');
-                el.classList.add('text-slate-500');
-            });
-            const activeBtn = document.getElementById(`nav-${viewId}`);
-            if(activeBtn) {
-                activeBtn.classList.add('bg-slate-50', 'text-accent', 'shadow-sm');
-                activeBtn.classList.remove('text-slate-500');
-            }
-
-            // View change
-            const template = document.getElementById(`view-${viewId}`);
-            if (template) {
-                document.getElementById('main-container').innerHTML = template.innerHTML;
-                lucide.createIcons();
-                if (viewId === 'timeline') renderTimeline();
-            }
-        }
-
-        window.renderTimeline = () => {
-            const listContainer = document.getElementById('timeline-list-container');
-            if (!listContainer) return;
-            listContainer.innerHTML = '';
-            
-            const sortedData = [...(window.timelineData || [])].sort((a, b) => {
-                const dateA = a.date.replace(/[^0-9]/g, '').padEnd(8, '0');
-                const dateB = b.date.replace(/[^0-9]/g, '').padEnd(8, '0');
-                return dateA.localeCompare(dateB);
-            });
-
-            sortedData.forEach(item => {
-                const div = document.createElement('div');
-                div.className = "relative flex items-start gap-6 group cursor-pointer";
-                div.onclick = () => showDetail(item.id);
-                div.innerHTML = `
-                    <div class="z-10 w-10 h-10 rounded-full border-4 border-slate-50 bg-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 group-hover:border-accent transition-all duration-300">
-                        <div class="w-2.5 h-2.5 rounded-full bg-slate-300 group-hover:bg-accent transition-colors"></div>
-                    </div>
-                    <div class="flex-1 bg-white p-6 lg:p-7 rounded-3xl shadow-card border border-slate-100 group-hover:-translate-y-1.5 transition-all duration-300 text-left">
-                        <div class="flex justify-between items-center mb-3">
-                            <span class="text-xs font-black text-accent font-mono tracking-tighter bg-accent/5 px-2 py-0.5 rounded">${item.date}</span>
-                            <i data-lucide="arrow-right-circle" class="w-5 h-5 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300 text-accent"></i>
-                        </div>
-                        <h3 class="text-xl font-bold text-slate-800 mb-2 group-hover:text-accent transition-colors">${item.title}</h3>
-                        <p class="text-sm text-slate-500 line-clamp-2 leading-relaxed">${item.summary}</p>
-                    </div>`;
-                listContainer.appendChild(div);
-            });
-            lucide.createIcons();
-        };
-
-        function showDetail(id) {
-            const item = window.timelineData.find(d => d.id === id);
-            if (!item) return;
-            
-            window.currentView = 'detail';
-            const template = document.getElementById('view-detail');
-            document.getElementById('main-container').innerHTML = template.innerHTML;
-            
-            document.getElementById('detail-date').textContent = item.date;
-            document.getElementById('detail-title').textContent = item.title;
-            document.getElementById('detail-content').innerHTML = item.content;
-            document.getElementById('detail-source').textContent = item.source;
-            
-            if (item.footnote) {
-                document.getElementById('detail-footnote-container').classList.remove('hidden');
-                document.getElementById('detail-footnote').textContent = item.footnote;
-            }
-            
-            lucide.createIcons();
-            document.getElementById('main-container').scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
         window.handleFormSubmit = async () => {
             const btn = document.getElementById('submit-btn');
             const date = document.getElementById('input-date').value.trim();
@@ -415,6 +420,11 @@
 
             if (!date || !title) {
                 alert("시간과 사건명은 필수입니다.");
+                return;
+            }
+
+            if (typeof window.addNewEventToDB !== 'function') {
+                alert("현재 오프라인 모드이거나 데이터베이스 연결이 준비되지 않았습니다.");
                 return;
             }
 
@@ -434,7 +444,7 @@
             try {
                 await window.addNewEventToDB(newEvent);
                 alert("성공적으로 저장되었습니다.");
-                navigateTo('timeline'); // 저장 후 연표로 이동
+                navigateTo('timeline');
             } catch (e) { 
                 console.error(e);
                 alert("저장 실패: " + e.message);
@@ -444,7 +454,9 @@
             }
         };
 
-        window.onload = () => navigateTo('timeline');
+        window.onload = () => {
+            navigateTo('timeline');
+        };
     </script>
 </body>
 </html>
