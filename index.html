@@ -16,7 +16,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- 1. 핵심 데이터 및 로컬 저장소 로직 (Firebase 없이도 작동) -->
+    <!-- 1. 핵심 데이터 및 로컬 저장소 로직 -->
     <script>
         // --- 초기 역사적 기록 (Static Data) ---
         const initialHistoricalData = [
@@ -100,53 +100,64 @@
         ];
 
         // --- 전역 상태 관리 ---
-        window.timelineData = [...initialHistoricalData];
+        window.timelineData = [];
         window.currentView = 'timeline';
 
-        // 1. 로컬 저장소에서 데이터 불러오기 (GitHub 등 외부 환경용)
-        function loadLocalEvents() {
+        // 1. 로컬 저장소에서 데이터 불러오기
+        function initializeData() {
             try {
                 const localEvents = localStorage.getItem('user_events');
-                if (localEvents) {
-                    const parsed = JSON.parse(localEvents);
-                    // ID 중복 방지를 위해 단순 병합
-                    const existingIds = new Set(initialHistoricalData.map(d => d.id));
-                    const newEvents = parsed.filter(d => !existingIds.has(d.id));
-                    window.timelineData = [...initialHistoricalData, ...newEvents];
+                if (!localEvents) {
+                    localStorage.setItem('user_events', JSON.stringify(initialHistoricalData));
+                    window.timelineData = [...initialHistoricalData];
+                } else {
+                    window.timelineData = JSON.parse(localEvents);
                 }
             } catch (e) {
                 console.error("Local storage load error:", e);
+                window.timelineData = [...initialHistoricalData];
             }
         }
 
-        // 2. 기본 저장 함수 정의 (LocalStorage 사용)
-        // Firebase가 연결되면 이 함수는 덮어씌워집니다.
+        // 2. 데이터 관리 함수들 (LocalStorage 기반)
         window.addNewEventToDB = async (newEvent) => {
             return new Promise((resolve) => {
-                // 로컬 저장소에서 가져오기
                 const localData = JSON.parse(localStorage.getItem('user_events') || '[]');
-                
-                // ID 생성 (타임스탬프 기반)
                 newEvent.id = 'local-' + Date.now();
-                
-                // 데이터 추가 및 저장
                 localData.push(newEvent);
                 localStorage.setItem('user_events', JSON.stringify(localData));
-                
-                // 현재 메모리에도 반영
-                window.timelineData.push(newEvent);
-                
-                // UI 갱신 (만약 타임라인 뷰라면)
-                if (window.currentView === 'timeline' && typeof window.renderTimeline === 'function') {
-                    window.renderTimeline();
-                }
-                
+                window.timelineData = localData; 
+                if (window.currentView === 'timeline') renderTimeline();
                 resolve(true);
             });
         };
 
-        // 초기 실행
-        loadLocalEvents();
+        window.updateEventInDB = async (id, updatedEvent) => {
+            return new Promise((resolve) => {
+                const localData = JSON.parse(localStorage.getItem('user_events') || '[]');
+                const index = localData.findIndex(item => item.id === id);
+                if (index !== -1) {
+                    localData[index] = { ...localData[index], ...updatedEvent };
+                    localStorage.setItem('user_events', JSON.stringify(localData));
+                    window.timelineData = localData;
+                    if (window.currentView === 'timeline') renderTimeline();
+                }
+                resolve(true);
+            });
+        };
+
+        window.deleteEventFromDB = async (id) => {
+            return new Promise((resolve) => {
+                const localData = JSON.parse(localStorage.getItem('user_events') || '[]');
+                const newData = localData.filter(item => item.id !== id);
+                localStorage.setItem('user_events', JSON.stringify(newData));
+                window.timelineData = newData;
+                if (window.currentView === 'timeline') renderTimeline();
+                resolve(true);
+            });
+        }
+
+        initializeData();
 
         // --- Tailwind 설정 ---
         tailwind.config = {
@@ -162,7 +173,6 @@
             }
         };
 
-        // --- UI 네비게이션 함수 ---
         function navigateTo(viewId) {
             window.currentView = viewId;
             document.querySelectorAll('.nav-item').forEach(el => {
@@ -180,17 +190,19 @@
                 document.getElementById('main-container').innerHTML = template.innerHTML;
                 lucide.createIcons();
                 if (viewId === 'timeline') {
-                    // 약간의 지연을 주어 DOM이 확실히 그려진 후 렌더링
                     setTimeout(renderTimeline, 0);
                 }
             }
         }
 
-        // --- 타임라인 렌더링 함수 ---
+        // --- 가로형 2줄 타임라인 렌더링 함수 ---
         function renderTimeline() {
             const listContainer = document.getElementById('timeline-list-container');
             if (!listContainer) return;
             listContainer.innerHTML = '';
+            
+            // 2행 그리드 레이아웃 적용
+            listContainer.className = "grid grid-rows-2 grid-flow-col gap-x-8 gap-y-4 overflow-x-auto pb-8 pt-8 px-4 snap-x horizontal-scroll items-start h-full";
             
             const sortedData = [...(window.timelineData || [])].sort((a, b) => {
                 const dateA = a.date.replace(/[^0-9]/g, '').padEnd(8, '0');
@@ -199,62 +211,159 @@
             });
 
             if (sortedData.length === 0) {
-                listContainer.innerHTML = '<p class="text-center text-slate-400 py-10">데이터가 없습니다.</p>';
+                listContainer.innerHTML = '<p class="text-center text-slate-400 py-10 w-full col-span-full">데이터가 없습니다.</p>';
                 return;
             }
 
-            sortedData.forEach(item => {
+            sortedData.forEach((item, index) => {
+                // Determine line connection logic based on 2-row layout
+                const isFirstCol = index < 2; // First column items (Top & Bottom)
+                
+                // Line Style
+                let lineClass = "absolute top-[11px] h-[2px] bg-slate-200 z-0";
+                
+                // Line Logic for 2-row grid flow
+                // Left-to-Right connection
+                if (isFirstCol) {
+                    // First column: Line starts from center to right
+                    lineClass += " left-1/2 right-0"; 
+                } else {
+                    // Middle/Last columns: Line goes full width (or customized for last item if we knew total width)
+                    // Simplified: Connect left-to-right fully for continuity
+                    lineClass += " left-0 right-0"; 
+                }
+                
+                // Last column adjustment could be added here if we calculated total columns
+
                 const div = document.createElement('div');
-                div.className = "relative flex items-start gap-6 group cursor-pointer";
-                div.onclick = () => showDetail(item.id);
+                div.className = "relative w-[350px] snap-center group flex flex-col";
+                
                 div.innerHTML = `
-                    <div class="z-10 w-10 h-10 rounded-full border-4 border-slate-50 bg-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-110 group-hover:border-accent transition-all duration-300">
-                        <div class="w-2.5 h-2.5 rounded-full bg-slate-300 group-hover:bg-accent transition-colors"></div>
+                    <!-- Horizontal Line Segment -->
+                    <div class="${lineClass}"></div>
+                    
+                    <!-- Dot -->
+                    <div class="z-10 w-6 h-6 rounded-full border-4 border-slate-50 bg-white mx-auto flex items-center justify-center shadow-sm group-hover:scale-125 group-hover:border-accent transition-all duration-300 relative">
+                        <div class="w-2 h-2 rounded-full bg-slate-300 group-hover:bg-accent transition-colors"></div>
                     </div>
-                    <div class="flex-1 bg-white p-6 lg:p-7 rounded-3xl shadow-card border border-slate-100 group-hover:-translate-y-1.5 transition-all duration-300 text-left">
-                        <div class="flex justify-between items-center mb-3">
-                            <span class="text-xs font-black text-accent font-mono tracking-tighter bg-accent/5 px-2 py-0.5 rounded">${item.date}</span>
-                            <i data-lucide="arrow-right-circle" class="w-5 h-5 text-slate-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300 text-accent"></i>
+                    
+                    <!-- Date Badge -->
+                    <div class="text-center mt-4 mb-3 relative z-10">
+                        <span class="text-xs font-black text-accent font-mono tracking-tighter bg-slate-50 border border-slate-100 px-3 py-1 rounded-full group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">${item.date}</span>
+                    </div>
+                    
+                    <!-- Card -->
+                    <div class="flex-1 bg-white p-6 rounded-3xl shadow-card border border-slate-100 group-hover:-translate-y-2 group-hover:shadow-lg transition-all duration-300 text-left relative overflow-hidden flex flex-col h-[240px]">
+                        <!-- Decorative Header -->
+                        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-slate-100 via-slate-200 to-slate-100 group-hover:from-accent group-hover:via-accent-light group-hover:to-accent transition-all duration-500"></div>
+                        
+                        <!-- Manage Buttons -->
+                        <div class="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                            <button onclick="event.stopPropagation(); openEditModal('${item.id}')" class="p-1.5 rounded-full bg-slate-50 hover:bg-accent hover:text-white text-slate-400 transition-colors shadow-sm" title="수정">
+                                <i data-lucide="pencil" class="w-3 h-3"></i>
+                            </button>
+                            <button onclick="event.stopPropagation(); handleDelete('${item.id}')" class="p-1.5 rounded-full bg-slate-50 hover:bg-red-500 hover:text-white text-slate-400 transition-colors shadow-sm" title="삭제">
+                                <i data-lucide="trash-2" class="w-3 h-3"></i>
+                            </button>
                         </div>
-                        <h3 class="text-xl font-bold text-slate-800 mb-2 group-hover:text-accent transition-colors">${item.title}</h3>
-                        <p class="text-sm text-slate-500 line-clamp-2 leading-relaxed">${item.summary}</p>
+
+                        <!-- Clickable Area -->
+                        <div onclick="showDetail('${item.id}')" class="cursor-pointer flex-1 flex flex-col justify-between">
+                            <div>
+                                <h3 class="text-lg font-bold text-slate-800 mb-2 group-hover:text-accent transition-colors leading-tight line-clamp-2">${item.title}</h3>
+                                <p class="text-xs text-slate-500 line-clamp-3 leading-relaxed">${item.summary}</p>
+                            </div>
+                            
+                            <div class="pt-3 border-t border-slate-50 flex justify-between items-center">
+                                <span class="text-[9px] font-bold text-slate-300 uppercase tracking-widest group-hover:text-slate-400">View Details</span>
+                                <i data-lucide="arrow-right" class="w-3 h-3 text-slate-300 group-hover:text-accent transition-colors"></i>
+                            </div>
+                        </div>
                     </div>`;
                 listContainer.appendChild(div);
             });
             lucide.createIcons();
         }
 
-        // --- 상세 보기 함수 ---
+        async function handleDelete(id) {
+            if(confirm("정말로 삭제하시겠습니까?")) {
+                try {
+                    await window.deleteEventFromDB(id);
+                } catch(e) {
+                    alert("삭제 실패: " + e.message);
+                }
+            }
+        }
+
+        function openEditModal(id) {
+            const item = window.timelineData.find(d => d.id === id);
+            if (!item) return;
+            document.getElementById('edit-id').value = item.id;
+            document.getElementById('edit-date').value = item.date;
+            document.getElementById('edit-title').value = item.title;
+            document.getElementById('edit-summary').value = item.summary;
+            document.getElementById('edit-content').value = item.content.replace(/<br>/g, "\n").replace(/<p>/g, "").replace(/<\/p>/g, "\n").trim();
+            document.getElementById('edit-footnote').value = item.footnote || "";
+            document.getElementById('edit-source').value = item.source || "";
+            document.getElementById('edit-modal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+
+        async function handleEditSubmit() {
+            const id = document.getElementById('edit-id').value;
+            const date = document.getElementById('edit-date').value.trim();
+            const title = document.getElementById('edit-title').value.trim();
+            const summary = document.getElementById('edit-summary').value.trim();
+            const contentRaw = document.getElementById('edit-content').value.trim();
+            const footnote = document.getElementById('edit-footnote').value.trim();
+            const source = document.getElementById('edit-source').value.trim();
+
+            if (!date || !title) {
+                alert("시간과 사건명은 필수입니다.");
+                return;
+            }
+            const content = contentRaw.replace(/\n/g, "<br>");
+            const updatedEvent = { date, title, summary, content, footnote, source };
+
+            try {
+                await window.updateEventInDB(id, updatedEvent);
+                closeEditModal();
+                alert("수정되었습니다.");
+            } catch(e) {
+                alert("수정 실패: " + e.message);
+            }
+        }
+
         function showDetail(id) {
             const item = window.timelineData.find(d => d.id === id);
             if (!item) return;
-            
             window.currentView = 'detail';
-            const template = document.getElementById('view-detail');
-            document.getElementById('main-container').innerHTML = template.innerHTML;
-            
+            document.getElementById('main-container').innerHTML = document.getElementById('view-detail').innerHTML;
             document.getElementById('detail-date').textContent = item.date;
             document.getElementById('detail-title').textContent = item.title;
             document.getElementById('detail-content').innerHTML = item.content;
             document.getElementById('detail-source').textContent = item.source;
-            
             if (item.footnote) {
                 document.getElementById('detail-footnote-container').classList.remove('hidden');
                 document.getElementById('detail-footnote').textContent = item.footnote;
             }
-            
             lucide.createIcons();
             document.getElementById('main-container').scrollTo({ top: 0, behavior: 'smooth' });
         }
     </script>
 
-    <!-- 2. Firebase Integration Script (Optional - Auto Fallback) -->
+    <!-- 2. Firebase Integration Script (Optional) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // 깃허브 등 외부 환경에서 Firebase를 사용하려면 아래 객체를 채우고 주석을 해제하세요.
+        // Firebase 설정 (필요시 주석 해제 후 입력)
         /*
         const myFirebaseConfig = {
             apiKey: "YOUR_API_KEY",
@@ -269,30 +378,41 @@
         (async function initFirebaseBridge() {
             try {
                 let config = null;
-                // 1. Canvas 환경 변수 확인
-                if (typeof __firebase_config !== 'undefined') {
-                    config = JSON.parse(__firebase_config);
-                } 
-                // 2. 사용자 정의 Config 확인
-                else if (typeof myFirebaseConfig !== 'undefined') {
-                    config = myFirebaseConfig;
-                }
+                if (typeof __firebase_config !== 'undefined') config = JSON.parse(__firebase_config);
+                else if (typeof myFirebaseConfig !== 'undefined') config = myFirebaseConfig;
 
                 if (config) {
-                    // Firebase 초기화
                     const app = initializeApp(config);
                     const auth = getAuth(app);
                     const db = getFirestore(app);
                     const appId = typeof __app_id !== 'undefined' ? __app_id : 'github-deployment';
 
-                    // 저장 함수 재정의 (Override LocalStorage Logic)
                     window.addNewEventToDB = async (newEvent) => {
                         if (!auth.currentUser) return;
                         const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
                         await addDoc(eventsCol, newEvent);
                     };
 
-                    // 인증 및 리스너 설정
+                    window.updateEventInDB = async (id, updatedEvent) => {
+                        if (!auth.currentUser) return;
+                        if (!id.startsWith('static-') && !id.startsWith('local-')) {
+                            const eventRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', id);
+                            await updateDoc(eventRef, updatedEvent);
+                        } else {
+                            alert("클라우드 모드에서는 기본 데이터를 수정할 수 없습니다.");
+                        }
+                    };
+
+                    window.deleteEventFromDB = async (id) => {
+                        if (!auth.currentUser) return;
+                        if (!id.startsWith('static-') && !id.startsWith('local-')) {
+                            const eventRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', id);
+                            await deleteDoc(eventRef);
+                        } else {
+                            alert("클라우드 모드에서는 기본 데이터를 삭제할 수 없습니다.");
+                        }
+                    };
+
                     const initAuth = async () => {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(auth, __initial_auth_token);
@@ -306,53 +426,38 @@
                             const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
                             onSnapshot(eventsCol, (snapshot) => {
                                 const cloudData = [];
-                                snapshot.forEach(doc => {
-                                    cloudData.push({ id: doc.id, ...doc.data() });
-                                });
-                                // 기존 데이터와 합치기
-                                // 주의: Firebase 연결 시 LocalStorage 데이터는 무시하거나 별도로 처리 필요할 수 있음
-                                // 여기서는 기본 데이터 + 클라우드 데이터로 설정
+                                snapshot.forEach(doc => cloudData.push({ id: doc.id, ...doc.data() }));
                                 window.timelineData = [...initialHistoricalData, ...cloudData];
                                 if (window.currentView === 'timeline') renderTimeline();
                             });
-                            
-                            // 상태 표시 업데이트
                             const statusEl = document.getElementById('conn-status');
-                            const dotEl = document.getElementById('conn-status-dot');
                             if(statusEl) statusEl.textContent = 'Cloud Connected';
-                            if(dotEl) dotEl.classList.replace('bg-slate-300', 'bg-green-500');
+                            document.getElementById('conn-status-dot').classList.replace('bg-slate-300', 'bg-green-500');
                         }
                     });
-
                     await initAuth();
                 } else {
-                    // Config가 없으면 조용히 로컬 모드 유지
-                    console.log("Firebase config not found. Running in Local Storage Mode.");
-                    const statusEl = document.getElementById('conn-status');
-                    if(statusEl) statusEl.textContent = 'Local Storage';
+                    document.getElementById('conn-status').textContent = 'Local Storage';
                 }
             } catch (e) {
-                console.warn("Firebase Init Skipped/Failed:", e);
-                // 실패해도 로컬 모드는 작동함
-                const statusEl = document.getElementById('conn-status');
-                if(statusEl) statusEl.textContent = 'Offline Mode';
+                console.warn("Firebase Init Skipped:", e);
+                document.getElementById('conn-status').textContent = 'Offline Mode';
             }
         })();
     </script>
 
     <style>
-        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         .fade-in { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .timeline-line::before { content: ''; position: absolute; left: 19px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; z-index: 0; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased h-screen flex overflow-hidden">
 
-    <!-- Sidebar Navigation -->
+    <!-- Sidebar -->
     <nav class="w-64 bg-white border-r border-slate-200 flex-shrink-0 flex flex-col justify-between h-full shadow-soft z-20">
         <div>
             <div class="p-8 pb-4">
@@ -362,7 +467,6 @@
                 </div>
                 <p class="text-[10px] text-slate-400 font-bold pl-1 mt-2 tracking-widest uppercase">Archive System</p>
             </div>
-            
             <ul class="flex flex-col px-4 gap-2 mt-4">
                 <li>
                     <button onclick="navigateTo('timeline')" id="nav-timeline" class="nav-item w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl text-slate-500 hover:bg-slate-50 hover:text-accent transition-all duration-200 group shadow-sm bg-slate-50 text-accent">
@@ -378,7 +482,6 @@
                 </li>
             </ul>
         </div>
-        
         <div class="p-6 border-t border-slate-100">
              <div class="flex flex-col gap-3">
                 <div class="flex items-center gap-3">
@@ -400,29 +503,28 @@
 
     <main class="flex-1 h-full overflow-y-auto bg-slate-50 relative p-8 lg:p-12" id="main-container"></main>
 
-    <!-- Template: Timeline View -->
+    <!-- Template: Timeline (Horizontal 2-Row Grid) -->
     <template id="view-timeline">
-        <div class="max-w-4xl mx-auto fade-in">
-            <header class="mb-12 text-center">
+        <div class="h-full flex flex-col fade-in">
+            <header class="mb-4 text-left pl-4">
                 <span class="px-3 py-1 rounded-full bg-accent-light text-accent text-[10px] font-bold tracking-widest uppercase mb-3 inline-block">Historical Archive</span>
                 <h2 class="text-3xl font-bold text-slate-800">1956-1958 주요 경제 사건 연표</h2>
-                <p class="text-slate-500 mt-2 text-sm">기록된 사건을 클릭하면 상세한 역사적 배경을 확인할 수 있습니다.</p>
+                <!-- 설명 글 삭제됨 -->
             </header>
 
-            <div class="relative timeline-line pl-4 space-y-8" id="timeline-list-container">
-                <!-- Timeline items injected via JS -->
+            <div class="flex-1 relative bg-slate-50/50 rounded-3xl border border-slate-100 overflow-hidden">
+                <div id="timeline-list-container"></div>
             </div>
         </div>
     </template>
 
-    <!-- Template: Add Event View -->
+    <!-- Template: Add Event -->
     <template id="view-add-event">
         <div class="max-w-4xl mx-auto fade-in">
             <header class="mb-10 text-center">
                 <h2 class="text-3xl font-bold text-slate-800">새로운 역사적 기록 등록</h2>
                 <p class="text-slate-500 mt-2 text-sm">정보는 브라우저(로컬) 또는 클라우드에 영구 저장됩니다.</p>
             </header>
-
             <div class="bg-white p-8 lg:p-10 rounded-3xl border border-slate-200 shadow-soft">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div class="space-y-2">
@@ -434,7 +536,6 @@
                         <input type="text" id="input-title" placeholder="사건의 핵심 제목" class="w-full px-5 py-4 rounded-2xl border border-slate-100 bg-slate-50 focus:bg-white focus:ring-4 focus:ring-accent/10 outline-none transition-all text-sm">
                     </div>
                 </div>
-
                 <div class="space-y-6">
                     <div class="space-y-2">
                         <label class="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">한 줄 요약 (Summary)</label>
@@ -455,7 +556,6 @@
                         </div>
                     </div>
                 </div>
-
                 <button onclick="handleFormSubmit()" id="submit-btn" class="w-full mt-10 bg-accent hover:bg-accent-dark text-white font-bold py-5 rounded-2xl shadow-xl shadow-accent/20 transition-all flex items-center justify-center gap-3 group">
                     <i data-lucide="save" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
                     기록 저장하기
@@ -464,7 +564,7 @@
         </div>
     </template>
 
-    <!-- Template: Detail View -->
+    <!-- Template: Detail -->
     <template id="view-detail">
         <div class="max-w-3xl mx-auto fade-in">
             <button onclick="navigateTo('timeline')" class="mb-6 flex items-center text-sm text-slate-500 hover:text-accent transition-colors group">
@@ -479,7 +579,6 @@
                     </div>
                     <h2 id="detail-title" class="text-3xl lg:text-4xl font-bold text-slate-800 mb-10 leading-tight"></h2>
                     <div id="detail-content" class="prose prose-slate max-w-none text-slate-600 leading-relaxed space-y-6 text-lg"></div>
-                    
                     <div id="detail-footnote-container" class="mt-10 hidden">
                          <div class="p-6 bg-slate-50 rounded-2xl border-l-4 border-slate-300 shadow-sm">
                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
@@ -488,7 +587,6 @@
                             <p id="detail-footnote" class="text-sm text-slate-500 leading-relaxed"></p>
                          </div>
                     </div>
-
                     <div class="mt-12 pt-10 border-t border-slate-100">
                         <div class="flex items-start gap-4 bg-slate-50/50 p-6 rounded-2xl border border-slate-100">
                             <i data-lucide="book-marked" class="w-5 h-5 text-slate-300 mt-1"></i>
@@ -503,8 +601,60 @@
         </div>
     </template>
 
+    <!-- Modal: Edit -->
+    <div id="edit-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onclick="closeEditModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-[fadeIn_0.3s_ease-out]">
+                <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="pencil" class="w-4 h-4 text-accent"></i> 기록 수정
+                    </h3>
+                    <button onclick="closeEditModal()" class="text-slate-400 hover:text-slate-600">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="p-6 max-h-[70vh] overflow-y-auto">
+                    <input type="hidden" id="edit-id">
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">시간</label>
+                            <input type="text" id="edit-date" class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-accent outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">제목</label>
+                            <input type="text" id="edit-title" class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-accent outline-none">
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">요약</label>
+                        <input type="text" id="edit-summary" class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-accent outline-none">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">내용</label>
+                        <textarea id="edit-content" rows="5" class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-accent outline-none resize-none"></textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">각주</label>
+                            <input type="text" id="edit-footnote" class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-accent outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">출처</label>
+                            <input type="text" id="edit-source" class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-accent outline-none">
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
+                    <button onclick="closeEditModal()" class="px-5 py-2.5 rounded-xl text-slate-500 font-bold hover:bg-slate-100 text-sm">취소</button>
+                    <button onclick="handleEditSubmit()" class="px-5 py-2.5 rounded-xl bg-accent text-white font-bold hover:bg-accent-dark text-sm shadow-md shadow-accent/20">수정 완료</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // 전역 실행 함수 (Form Handler)
+        // Form Submit Handler
         window.handleFormSubmit = async () => {
             const btn = document.getElementById('submit-btn');
             const date = document.getElementById('input-date').value.trim();
@@ -523,31 +673,25 @@
             btn.innerHTML = '<span class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span> 저장 중...';
 
             const newEvent = { 
-                date, 
-                title, 
-                summary: summary || "상세 정보가 등록되지 않았습니다.", 
+                date, title, summary: summary || "상세 정보가 없습니다.", 
                 content: content.replace(/\n/g, "<br>"), 
-                footnote: footnote || "", 
-                source: source || "출처 정보 없음", 
+                footnote: footnote || "", source: source || "출처 정보 없음", 
                 createdAt: new Date().toISOString() 
             };
 
             try {
                 if (typeof window.addNewEventToDB === 'function') {
                     await window.addNewEventToDB(newEvent);
-                    alert("성공적으로 저장되었습니다.");
-                    
-                    // 입력 필드 초기화
+                    alert("저장되었습니다.");
                     document.getElementById('input-date').value = '';
                     document.getElementById('input-title').value = '';
                     document.getElementById('input-summary').value = '';
                     document.getElementById('input-content').value = '';
                     document.getElementById('input-footnote').value = '';
                     document.getElementById('input-source').value = '';
-                    
                     navigateTo('timeline');
                 } else {
-                    throw new Error("저장 시스템이 준비되지 않았습니다.");
+                    throw new Error("저장 시스템 오류");
                 }
             } catch (e) { 
                 console.error(e);
@@ -559,7 +703,6 @@
             }
         };
 
-        // DOMContentLoaded 이벤트로 초기 실행 보장
         window.addEventListener('DOMContentLoaded', () => {
             navigateTo('timeline');
         });
