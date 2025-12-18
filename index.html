@@ -16,7 +16,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- 1. Core Data and Navigation Script -->
+    <!-- 1. 핵심 데이터 및 로컬 저장소 로직 (Firebase 없이도 작동) -->
     <script>
         // --- 초기 역사적 기록 (Static Data) ---
         const initialHistoricalData = [
@@ -99,22 +99,56 @@
             }
         ];
 
-        // --- Data Handling (Firebase Fallback to LocalStorage) ---
+        // --- 전역 상태 관리 ---
         window.timelineData = [...initialHistoricalData];
         window.currentView = 'timeline';
 
-        // LocalStorage에서 추가된 데이터 불러오기
+        // 1. 로컬 저장소에서 데이터 불러오기 (GitHub 등 외부 환경용)
         function loadLocalEvents() {
-            const localEvents = localStorage.getItem('user_events');
-            if (localEvents) {
-                const parsed = JSON.parse(localEvents);
-                window.timelineData = [...initialHistoricalData, ...parsed];
+            try {
+                const localEvents = localStorage.getItem('user_events');
+                if (localEvents) {
+                    const parsed = JSON.parse(localEvents);
+                    // ID 중복 방지를 위해 단순 병합
+                    const existingIds = new Set(initialHistoricalData.map(d => d.id));
+                    const newEvents = parsed.filter(d => !existingIds.has(d.id));
+                    window.timelineData = [...initialHistoricalData, ...newEvents];
+                }
+            } catch (e) {
+                console.error("Local storage load error:", e);
             }
         }
+
+        // 2. 기본 저장 함수 정의 (LocalStorage 사용)
+        // Firebase가 연결되면 이 함수는 덮어씌워집니다.
+        window.addNewEventToDB = async (newEvent) => {
+            return new Promise((resolve) => {
+                // 로컬 저장소에서 가져오기
+                const localData = JSON.parse(localStorage.getItem('user_events') || '[]');
+                
+                // ID 생성 (타임스탬프 기반)
+                newEvent.id = 'local-' + Date.now();
+                
+                // 데이터 추가 및 저장
+                localData.push(newEvent);
+                localStorage.setItem('user_events', JSON.stringify(localData));
+                
+                // 현재 메모리에도 반영
+                window.timelineData.push(newEvent);
+                
+                // UI 갱신 (만약 타임라인 뷰라면)
+                if (window.currentView === 'timeline' && typeof window.renderTimeline === 'function') {
+                    window.renderTimeline();
+                }
+                
+                resolve(true);
+            });
+        };
 
         // 초기 실행
         loadLocalEvents();
 
+        // --- Tailwind 설정 ---
         tailwind.config = {
             theme: {
                 extend: {
@@ -128,6 +162,7 @@
             }
         };
 
+        // --- UI 네비게이션 함수 ---
         function navigateTo(viewId) {
             window.currentView = viewId;
             document.querySelectorAll('.nav-item').forEach(el => {
@@ -144,10 +179,14 @@
             if (template) {
                 document.getElementById('main-container').innerHTML = template.innerHTML;
                 lucide.createIcons();
-                if (viewId === 'timeline') renderTimeline();
+                if (viewId === 'timeline') {
+                    // 약간의 지연을 주어 DOM이 확실히 그려진 후 렌더링
+                    setTimeout(renderTimeline, 0);
+                }
             }
         }
 
+        // --- 타임라인 렌더링 함수 ---
         function renderTimeline() {
             const listContainer = document.getElementById('timeline-list-container');
             if (!listContainer) return;
@@ -158,6 +197,11 @@
                 const dateB = b.date.replace(/[^0-9]/g, '').padEnd(8, '0');
                 return dateA.localeCompare(dateB);
             });
+
+            if (sortedData.length === 0) {
+                listContainer.innerHTML = '<p class="text-center text-slate-400 py-10">데이터가 없습니다.</p>';
+                return;
+            }
 
             sortedData.forEach(item => {
                 const div = document.createElement('div');
@@ -180,6 +224,7 @@
             lucide.createIcons();
         }
 
+        // --- 상세 보기 함수 ---
         function showDetail(id) {
             const item = window.timelineData.find(d => d.id === id);
             if (!item) return;
@@ -203,15 +248,13 @@
         }
     </script>
 
-    <!-- 2. Integration Script (Firebase & Local Persistence) -->
+    <!-- 2. Firebase Integration Script (Optional - Auto Fallback) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        let firebaseActive = false;
-
-        // Firebase를 사용하고 싶다면 아래 주석을 풀고 자신의 Config를 넣으세요.
+        // 깃허브 등 외부 환경에서 Firebase를 사용하려면 아래 객체를 채우고 주석을 해제하세요.
         /*
         const myFirebaseConfig = {
             apiKey: "YOUR_API_KEY",
@@ -223,73 +266,78 @@
         };
         */
 
-        try {
-            let config = null;
-            if (typeof __firebase_config !== 'undefined') {
-                config = JSON.parse(__firebase_config);
-            } else if (typeof myFirebaseConfig !== 'undefined') {
-                config = myFirebaseConfig;
-            }
+        (async function initFirebaseBridge() {
+            try {
+                let config = null;
+                // 1. Canvas 환경 변수 확인
+                if (typeof __firebase_config !== 'undefined') {
+                    config = JSON.parse(__firebase_config);
+                } 
+                // 2. 사용자 정의 Config 확인
+                else if (typeof myFirebaseConfig !== 'undefined') {
+                    config = myFirebaseConfig;
+                }
 
-            if (config) {
-                const app = initializeApp(config);
-                const auth = getAuth(app);
-                const db = getFirestore(app);
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-github-app';
+                if (config) {
+                    // Firebase 초기화
+                    const app = initializeApp(config);
+                    const auth = getAuth(app);
+                    const db = getFirestore(app);
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'github-deployment';
 
-                firebaseActive = true;
-
-                window.addNewEventToDB = async (newEvent) => {
-                    if (!auth.currentUser) return;
-                    const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
-                    await addDoc(eventsCol, newEvent);
-                };
-
-                const initAuth = async () => {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                };
-
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
+                    // 저장 함수 재정의 (Override LocalStorage Logic)
+                    window.addNewEventToDB = async (newEvent) => {
+                        if (!auth.currentUser) return;
                         const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
-                        onSnapshot(eventsCol, (snapshot) => {
-                            const cloudData = [];
-                            snapshot.forEach(doc => {
-                                cloudData.push({ id: doc.id, ...doc.data() });
-                            });
-                            window.timelineData = [...initialHistoricalData, ...cloudData];
-                            if (window.currentView === 'timeline') renderTimeline();
-                        });
-                        document.getElementById('conn-status').textContent = 'Cloud Connected';
-                        document.getElementById('conn-status-dot').classList.replace('bg-slate-300', 'bg-green-500');
-                    }
-                });
+                        await addDoc(eventsCol, newEvent);
+                    };
 
-                initAuth();
-            } else {
-                throw new Error("No config");
+                    // 인증 및 리스너 설정
+                    const initAuth = async () => {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    };
+
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            const eventsCol = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+                            onSnapshot(eventsCol, (snapshot) => {
+                                const cloudData = [];
+                                snapshot.forEach(doc => {
+                                    cloudData.push({ id: doc.id, ...doc.data() });
+                                });
+                                // 기존 데이터와 합치기
+                                // 주의: Firebase 연결 시 LocalStorage 데이터는 무시하거나 별도로 처리 필요할 수 있음
+                                // 여기서는 기본 데이터 + 클라우드 데이터로 설정
+                                window.timelineData = [...initialHistoricalData, ...cloudData];
+                                if (window.currentView === 'timeline') renderTimeline();
+                            });
+                            
+                            // 상태 표시 업데이트
+                            const statusEl = document.getElementById('conn-status');
+                            const dotEl = document.getElementById('conn-status-dot');
+                            if(statusEl) statusEl.textContent = 'Cloud Connected';
+                            if(dotEl) dotEl.classList.replace('bg-slate-300', 'bg-green-500');
+                        }
+                    });
+
+                    await initAuth();
+                } else {
+                    // Config가 없으면 조용히 로컬 모드 유지
+                    console.log("Firebase config not found. Running in Local Storage Mode.");
+                    const statusEl = document.getElementById('conn-status');
+                    if(statusEl) statusEl.textContent = 'Local Storage';
+                }
+            } catch (e) {
+                console.warn("Firebase Init Skipped/Failed:", e);
+                // 실패해도 로컬 모드는 작동함
+                const statusEl = document.getElementById('conn-status');
+                if(statusEl) statusEl.textContent = 'Offline Mode';
             }
-        } catch (e) {
-            console.warn("Running in Local Persistence mode (Offline).");
-            document.getElementById('conn-status').textContent = 'Local Storage Mode';
-            
-            // Firebase가 없을 때 LocalStorage를 사용하는 함수 정의
-            window.addNewEventToDB = async (newEvent) => {
-                const localData = JSON.parse(localStorage.getItem('user_events') || '[]');
-                newEvent.id = 'local-' + Date.now();
-                localData.push(newEvent);
-                localStorage.setItem('user_events', JSON.stringify(localData));
-                
-                // 즉시 반영
-                window.timelineData = [...initialHistoricalData, ...localData];
-                if (window.currentView === 'timeline') renderTimeline();
-                return true;
-            };
-        }
+        })();
     </script>
 
     <style>
@@ -372,7 +420,7 @@
         <div class="max-w-4xl mx-auto fade-in">
             <header class="mb-10 text-center">
                 <h2 class="text-3xl font-bold text-slate-800">새로운 역사적 기록 등록</h2>
-                <p class="text-slate-500 mt-2 text-sm">정보는 로컬 브라우저 또는 클라우드에 영구 저장됩니다.</p>
+                <p class="text-slate-500 mt-2 text-sm">정보는 브라우저(로컬) 또는 클라우드에 영구 저장됩니다.</p>
             </header>
 
             <div class="bg-white p-8 lg:p-10 rounded-3xl border border-slate-200 shadow-soft">
@@ -456,6 +504,7 @@
     </template>
 
     <script>
+        // 전역 실행 함수 (Form Handler)
         window.handleFormSubmit = async () => {
             const btn = document.getElementById('submit-btn');
             const date = document.getElementById('input-date').value.trim();
@@ -487,6 +536,15 @@
                 if (typeof window.addNewEventToDB === 'function') {
                     await window.addNewEventToDB(newEvent);
                     alert("성공적으로 저장되었습니다.");
+                    
+                    // 입력 필드 초기화
+                    document.getElementById('input-date').value = '';
+                    document.getElementById('input-title').value = '';
+                    document.getElementById('input-summary').value = '';
+                    document.getElementById('input-content').value = '';
+                    document.getElementById('input-footnote').value = '';
+                    document.getElementById('input-source').value = '';
+                    
                     navigateTo('timeline');
                 } else {
                     throw new Error("저장 시스템이 준비되지 않았습니다.");
@@ -494,13 +552,14 @@
             } catch (e) { 
                 console.error(e);
                 alert("저장 실패: " + e.message);
+            } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i data-lucide="save" class="w-5 h-5 mr-2"></i> 기록 저장하기';
                 lucide.createIcons();
             }
         };
 
-        // 초기 화면 설정
+        // DOMContentLoaded 이벤트로 초기 실행 보장
         window.addEventListener('DOMContentLoaded', () => {
             navigateTo('timeline');
         });
