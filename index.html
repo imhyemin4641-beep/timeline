@@ -16,7 +16,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- 1. Core Data and Navigation Script (Available Immediately) -->
+    <!-- 1. Core Data and Navigation Script -->
     <script>
         // --- 초기 역사적 기록 (Static Data) ---
         const initialHistoricalData = [
@@ -99,8 +99,21 @@
             }
         ];
 
+        // --- Data Handling (Firebase Fallback to LocalStorage) ---
         window.timelineData = [...initialHistoricalData];
         window.currentView = 'timeline';
+
+        // LocalStorage에서 추가된 데이터 불러오기
+        function loadLocalEvents() {
+            const localEvents = localStorage.getItem('user_events');
+            if (localEvents) {
+                const parsed = JSON.parse(localEvents);
+                window.timelineData = [...initialHistoricalData, ...parsed];
+            }
+        }
+
+        // 초기 실행
+        loadLocalEvents();
 
         tailwind.config = {
             theme: {
@@ -190,19 +203,41 @@
         }
     </script>
 
-    <!-- 2. Firebase Integration Script (Module) -->
+    <!-- 2. Integration Script (Firebase & Local Persistence) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        let firebaseActive = false;
+
+        // Firebase를 사용하고 싶다면 아래 주석을 풀고 자신의 Config를 넣으세요.
+        /*
+        const myFirebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        */
+
         try {
+            let config = null;
             if (typeof __firebase_config !== 'undefined') {
-                const firebaseConfig = JSON.parse(__firebase_config);
-                const app = initializeApp(firebaseConfig);
+                config = JSON.parse(__firebase_config);
+            } else if (typeof myFirebaseConfig !== 'undefined') {
+                config = myFirebaseConfig;
+            }
+
+            if (config) {
+                const app = initializeApp(config);
                 const auth = getAuth(app);
                 const db = getFirestore(app);
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-github-app';
+
+                firebaseActive = true;
 
                 window.addNewEventToDB = async (newEvent) => {
                     if (!auth.currentUser) return;
@@ -226,22 +261,34 @@
                             snapshot.forEach(doc => {
                                 cloudData.push({ id: doc.id, ...doc.data() });
                             });
-                            // Merge and refresh
                             window.timelineData = [...initialHistoricalData, ...cloudData];
                             if (window.currentView === 'timeline') renderTimeline();
                         });
-                        document.getElementById('conn-status').textContent = 'Connected';
+                        document.getElementById('conn-status').textContent = 'Cloud Connected';
                         document.getElementById('conn-status-dot').classList.replace('bg-slate-300', 'bg-green-500');
                     }
                 });
 
                 initAuth();
             } else {
-                console.warn("Firebase config not found. Running in Offline mode.");
-                document.getElementById('conn-status').textContent = 'Offline Mode';
+                throw new Error("No config");
             }
         } catch (e) {
-            console.error("Firebase Init Error:", e);
+            console.warn("Running in Local Persistence mode (Offline).");
+            document.getElementById('conn-status').textContent = 'Local Storage Mode';
+            
+            // Firebase가 없을 때 LocalStorage를 사용하는 함수 정의
+            window.addNewEventToDB = async (newEvent) => {
+                const localData = JSON.parse(localStorage.getItem('user_events') || '[]');
+                newEvent.id = 'local-' + Date.now();
+                localData.push(newEvent);
+                localStorage.setItem('user_events', JSON.stringify(localData));
+                
+                // 즉시 반영
+                window.timelineData = [...initialHistoricalData, ...localData];
+                if (window.currentView === 'timeline') renderTimeline();
+                return true;
+            };
         }
     </script>
 
@@ -270,7 +317,7 @@
             
             <ul class="flex flex-col px-4 gap-2 mt-4">
                 <li>
-                    <button onclick="navigateTo('timeline')" id="nav-timeline" class="nav-item w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl text-slate-500 hover:bg-slate-50 hover:text-accent transition-all duration-200 group">
+                    <button onclick="navigateTo('timeline')" id="nav-timeline" class="nav-item w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl text-slate-500 hover:bg-slate-50 hover:text-accent transition-all duration-200 group shadow-sm bg-slate-50 text-accent">
                         <i data-lucide="clock" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
                         연표 (Timeline)
                     </button>
@@ -325,7 +372,7 @@
         <div class="max-w-4xl mx-auto fade-in">
             <header class="mb-10 text-center">
                 <h2 class="text-3xl font-bold text-slate-800">새로운 역사적 기록 등록</h2>
-                <p class="text-slate-500 mt-2 text-sm">입력하신 정보는 클라우드 데이터베이스에 즉시 영구 저장됩니다.</p>
+                <p class="text-slate-500 mt-2 text-sm">정보는 로컬 브라우저 또는 클라우드에 영구 저장됩니다.</p>
             </header>
 
             <div class="bg-white p-8 lg:p-10 rounded-3xl border border-slate-200 shadow-soft">
@@ -361,9 +408,9 @@
                     </div>
                 </div>
 
-                <button onclick="handleFormSubmit()" id="submit-btn" class="w-full mt-10 bg-accent hover:bg-accent-dark text-white font-bold py-5 rounded-2xl shadow-xl shadow-accent/20 transition-all flex items-center justify-center gap-3 group disabled:opacity-50">
+                <button onclick="handleFormSubmit()" id="submit-btn" class="w-full mt-10 bg-accent hover:bg-accent-dark text-white font-bold py-5 rounded-2xl shadow-xl shadow-accent/20 transition-all flex items-center justify-center gap-3 group">
                     <i data-lucide="save" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
-                    데이터베이스에 영구 저장하기
+                    기록 저장하기
                 </button>
             </div>
         </div>
@@ -423,13 +470,8 @@
                 return;
             }
 
-            if (typeof window.addNewEventToDB !== 'function') {
-                alert("현재 오프라인 모드이거나 데이터베이스 연결이 준비되지 않았습니다.");
-                return;
-            }
-
             btn.disabled = true;
-            btn.innerHTML = '<span class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span> 전송 중...';
+            btn.innerHTML = '<span class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span> 저장 중...';
 
             const newEvent = { 
                 date, 
@@ -442,21 +484,26 @@
             };
 
             try {
-                await window.addNewEventToDB(newEvent);
-                alert("성공적으로 저장되었습니다.");
-                navigateTo('timeline');
+                if (typeof window.addNewEventToDB === 'function') {
+                    await window.addNewEventToDB(newEvent);
+                    alert("성공적으로 저장되었습니다.");
+                    navigateTo('timeline');
+                } else {
+                    throw new Error("저장 시스템이 준비되지 않았습니다.");
+                }
             } catch (e) { 
                 console.error(e);
                 alert("저장 실패: " + e.message);
                 btn.disabled = false;
-                btn.innerHTML = '<i data-lucide="save" class="w-5 h-5 mr-2"></i> 데이터베이스에 영구 저장하기';
+                btn.innerHTML = '<i data-lucide="save" class="w-5 h-5 mr-2"></i> 기록 저장하기';
                 lucide.createIcons();
             }
         };
 
-        window.onload = () => {
+        // 초기 화면 설정
+        window.addEventListener('DOMContentLoaded', () => {
             navigateTo('timeline');
-        };
+        });
     </script>
 </body>
 </html>
